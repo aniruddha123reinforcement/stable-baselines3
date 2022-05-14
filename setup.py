@@ -2,7 +2,7 @@ import os
 
 from setuptools import find_packages, setup
 
-with open(os.path.join("stable_baselines3", "version.txt"), "r") as file_handler:
+with open(os.path.join("stable_baselines3", "version.txt")) as file_handler:
     __version__ = file_handler.read().strip()
 
 
@@ -73,9 +73,9 @@ setup(
     packages=[package for package in find_packages() if package.startswith("stable_baselines3")],
     package_data={"stable_baselines3": ["py.typed", "version.txt"]},
     install_requires=[
-        "gym>=0.17,<0.20",  # gym 0.20 breaks atari-py behavior
+        "gym==0.21",  # Fixed version due to breaking changes in 0.22
         "numpy",
-        "torch>=1.8.1",
+        "torch>=1.11",
         # For saving models
         "cloudpickle",
         # For reading logs
@@ -116,7 +116,8 @@ setup(
             # For render
             "opencv-python",
             # For atari games,
-            "atari_py~=0.2.0",
+            "ale-py==0.7.4",
+            "autorom[accept-rom-license]~=0.4.2",
             "pillow",
             # Tensorboard support
             "tensorboard>=2.2.0",
@@ -134,6 +135,14 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     version=__version__,
+    python_requires=">=3.7",
+    # PyPI package information.
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+    ],
 )
 
 # python setup.py sdist

@@ -1,13 +1,15 @@
 import os
+import time
 from typing import Sequence
 
+import gym
 import numpy as np
 import pytest
 import torch as th
 from matplotlib import pyplot as plt
 from pandas.errors import EmptyDataError
 
-from stable_baselines3 import A2C
+from stable_baselines3 import A2C, DQN
 from stable_baselines3.common.logger import (
     DEBUG,
     INFO,
@@ -16,6 +18,7 @@ from stable_baselines3.common.logger import (
     FormatUnsupportedError,
     HumanOutputFormat,
     Image,
+    Logger,
     TensorBoardOutputFormat,
     Video,
     configure,
@@ -290,3 +293,91 @@ def test_report_figure_to_unsupported_format_raises_error(tmp_path, unsupported_
         writer.write({"figure": figure}, key_excluded={"figure": ()})
     assert unsupported_format in str(exec_info.value)
     writer.close()
+
+
+def test_key_length(tmp_path):
+    writer = make_output_format("stdout", tmp_path)
+    assert writer.max_length == 36
+    long_prefix = "a" * writer.max_length
+
+    ok_dict = {
+        # keys truncated but not aliased -- OK
+        "a" + long_prefix: 42,
+        "b" + long_prefix: 42,
+        # values truncated and aliased -- also OK
+        "foobar": long_prefix + "a",
+        "fizzbuzz": long_prefix + "b",
+    }
+    ok_excluded = {k: None for k in ok_dict}
+    writer.write(ok_dict, ok_excluded)
+
+    long_key_dict = {
+        long_prefix + "a": 42,
+        "foobar": "sdf",
+        long_prefix + "b": 42,
+    }
+    long_key_excluded = {k: None for k in long_key_dict}
+    # keys truncated and aliased -- not OK
+    with pytest.raises(ValueError, match="Key.*truncated"):
+        writer.write(long_key_dict, long_key_excluded)
+
+    # Just long enough to not be truncated now
+    writer.max_length += 1
+    writer.write(long_key_dict, long_key_excluded)
+
+
+class TimeDelayEnv(gym.Env):
+    """
+    Gym env for testing FPS logging.
+    """
+
+    def __init__(self, delay: float = 0.01):
+        super().__init__()
+        self.delay = delay
+        self.observation_space = gym.spaces.Box(low=-20.0, high=20.0, shape=(4,), dtype=np.float32)
+        self.action_space = gym.spaces.Discrete(2)
+
+    def reset(self):
+        return self.observation_space.sample()
+
+    def step(self, action):
+        time.sleep(self.delay)
+        obs = self.observation_space.sample()
+        return obs, 0.0, True, {}
+
+
+class InMemoryLogger(Logger):
+    """
+    Logger that keeps key/value pairs in memory without any writers.
+    """
+
+    def __init__(self):
+        super().__init__("", [])
+
+    def dump(self, step: int = 0) -> None:
+        pass
+
+
+@pytest.mark.parametrize("algo", [A2C, DQN])
+def test_fps_logger(tmp_path, algo):
+    logger = InMemoryLogger()
+    max_fps = 1000
+    env = TimeDelayEnv(1 / max_fps)
+    model = algo("MlpPolicy", env, verbose=1)
+    model.set_logger(logger)
+
+    # fps should be at most max_fps
+    model.learn(100, log_interval=1)
+    assert max_fps / 10 <= logger.name_to_value["time/fps"] <= max_fps
+
+    # second time, FPS should be the same
+    model.learn(100, log_interval=1)
+    assert max_fps / 10 <= logger.name_to_value["time/fps"] <= max_fps
+
+    # Artificially increase num_timesteps to check
+    # that fps computation is reset at each call to learn()
+    model.num_timesteps = 20_000
+
+    # third time, FPS should be the same
+    model.learn(100, log_interval=1, reset_num_timesteps=False)
+    assert max_fps / 10 <= logger.name_to_value["time/fps"] <= max_fps

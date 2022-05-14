@@ -12,11 +12,12 @@ from stable_baselines3.common.callbacks import (
     EvalCallback,
     EveryNTimesteps,
     StopTrainingOnMaxEpisodes,
+    StopTrainingOnNoModelImprovement,
     StopTrainingOnRewardThreshold,
 )
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.envs import BitFlippingEnv, IdentityEnv
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 
 @pytest.mark.parametrize("model_class", [A2C, PPO, SAC, TD3, DQN, DDPG])
@@ -35,9 +36,13 @@ def test_callbacks(tmp_path, model_class):
     # Stop training if the performance is good enough
     callback_on_best = StopTrainingOnRewardThreshold(reward_threshold=-1200, verbose=1)
 
+    # Stop training if there is no model improvement after 2 evaluations
+    callback_no_model_improvement = StopTrainingOnNoModelImprovement(max_no_improvement_evals=2, min_evals=1, verbose=1)
+
     eval_callback = EvalCallback(
         eval_env,
         callback_on_new_best=callback_on_best,
+        callback_after_eval=callback_no_model_improvement,
         best_model_save_path=log_folder,
         log_path=log_folder,
         eval_freq=100,
@@ -75,7 +80,7 @@ def test_callbacks(tmp_path, model_class):
     if model_class in [A2C, PPO]:
         max_episodes = 1
         n_envs = 2
-        # Pendulum-v0 has a timelimit of 200 timesteps
+        # Pendulum-v1 has a timelimit of 200 timesteps
         max_episode_length = 200
         envs = make_vec_env(env_name, n_envs=n_envs, seed=0)
 
@@ -99,7 +104,7 @@ def select_env(model_class) -> str:
     if model_class is DQN:
         return "CartPole-v0"
     else:
-        return "Pendulum-v0"
+        return "Pendulum-v1"
 
 
 def test_eval_callback_vec_env():
@@ -167,3 +172,34 @@ def test_eval_callback_logs_are_written_with_the_correct_timestep(tmp_path):
     acc.Reload()
     for event in acc.scalars.Items("eval/mean_reward"):
         assert event.step % eval_freq == 0
+
+
+def test_eval_friendly_error():
+    # tests that eval callback does not crash when given a vector
+    train_env = VecNormalize(DummyVecEnv([lambda: gym.make("CartPole-v1")]))
+    eval_env = DummyVecEnv([lambda: gym.make("CartPole-v1")])
+    eval_env = VecNormalize(eval_env, training=False, norm_reward=False)
+    _ = train_env.reset()
+    original_obs = train_env.get_original_obs()
+    model = A2C("MlpPolicy", train_env, n_steps=50, seed=0)
+
+    eval_callback = EvalCallback(
+        eval_env,
+        eval_freq=100,
+        warn=False,
+    )
+    model.learn(100, callback=eval_callback)
+
+    # Check synchronization
+    assert np.allclose(train_env.normalize_obs(original_obs), eval_env.normalize_obs(original_obs))
+
+    wrong_eval_env = gym.make("CartPole-v1")
+    eval_callback = EvalCallback(
+        wrong_eval_env,
+        eval_freq=100,
+        warn=False,
+    )
+
+    with pytest.warns(Warning):
+        with pytest.raises(AssertionError):
+            model.learn(100, callback=eval_callback)

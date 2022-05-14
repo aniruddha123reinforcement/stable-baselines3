@@ -25,6 +25,7 @@ Notes
 - Clear explanation of PPO on Arxiv Insights channel: https://www.youtube.com/watch?v=5P7I-xPq8u8
 - OpenAI blog post: https://blog.openai.com/openai-baselines-ppo/
 - Spinning Up guide: https://spinningup.openai.com/en/latest/algorithms/ppo.html
+- 37 implementation details blog: https://ppo-details.cleanrl.dev//2021/11/05/ppo-implementation-details/
 
 
 Can I use?
@@ -50,7 +51,7 @@ Example
 
 This example is only to demonstrate the use of the library and its functions, and the trained agents may not solve the environments. Optimized hyperparameters can be found in RL Zoo `repository <https://github.com/DLR-RM/rl-baselines3-zoo>`_.
 
-Train a PPO agent on ``Pendulum-v0`` using 4 environments.
+Train a PPO agent on ``CartPole-v1`` using 4 environments.
 
 .. code-block:: python
 
